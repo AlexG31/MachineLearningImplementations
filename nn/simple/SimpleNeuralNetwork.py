@@ -30,11 +30,12 @@ class SimpleNeuralNetwork(object):
         return layers
             
     def forward_propergate(self, x_in):
-        if x_in.shape[1] != self.weight_layers[0].shape[0]:
+        if x_in.shape[1] + 1 != self.weight_layers[0].shape[0]:
             raise Exception('Input must have the same shape: x_in: {}'.format(x_in.shape))
         # Inputs at each layer
-        layer_input_values = [x_in, ]
-        current_layer_value = np.array(x_in)
+        x_in_const = np.append(x_in, 1.0).reshape(1, -1)
+        layer_input_values = [x_in_const, ]
+        current_layer_value = np.array(x_in_const)
         for ind in xrange(0, len(self.weight_layers)):
             current_layer_value = current_layer_value.dot(self.weight_layers[ind])
 
@@ -43,6 +44,7 @@ class SimpleNeuralNetwork(object):
                 cell = self.layers[ind][0]
                 current_layer_value = cell.safe_f(current_layer_value)
                 # Inputs before weights
+                current_layer_value = np.append(current_layer_value, 1).reshape(1, -1)
                 layer_input_values.append(current_layer_value)
 
         return current_layer_value, layer_input_values
@@ -52,12 +54,15 @@ class SimpleNeuralNetwork(object):
             return y_estimate - y
         current_layer_value, layer_input_values = self.forward_propergate(x)
         error_layer = loss_derivative(y, current_layer_value)
+
+        # Deep copy updated_weights for update
         updated_weights = []
         for weight_layer in self.weight_layers:
             updated_weights.append(weight_layer.copy())
 
         for ind in xrange(-1, -len(layer_input_values) - 1, -1):
             current_inputs = layer_input_values[ind]
+            # current_inputs = np.append(current_inputs, 1.0).reshape(-1, 1)
             current_weights = self.weight_layers[ind]
             if error_layer.shape[0] != 1:
                 error_layer = error_layer.reshape(1, -1)
@@ -69,7 +74,7 @@ class SimpleNeuralNetwork(object):
                 continue
             # Update error layer
             error_layer = current_weights.dot(error_layer.T)
-            # Passing df
+            # Passing through df
             for err_ind in xrange(0, error_layer.size):
                 error_val = error_layer[err_ind]
                 cell = self.layers[function_layer_index][err_ind]
@@ -81,25 +86,29 @@ class SimpleNeuralNetwork(object):
             
         
 
-    def fit(self, x, y):
+    def init_weights(self, x, y):
         self.weight_layers = []
-        x = np.array(x)
-        if len(x.shape) < 2:
-            raise Exception('x must have more than 2 dims!')
-        y = np.array(y)
 
-        wlayer = np.ones((x.shape[1], len(self.layers[0])))
+        # + 1 for contant neural
+        wlayer = np.ones((x.shape[1] + 1, len(self.layers[0])))
         self.weight_layers.append(wlayer)
 
         for ind in xrange(0, len(self.layers) - 1):
             layer = self.layers[ind]
             next_layer = self.layers[ind + 1]
-            self.weight_layers.append(np.ones((len(layer), len(next_layer))))
+            self.weight_layers.append(np.ones((len(layer) + 1, len(next_layer))))
             
         # Outupt layer
-        self.weight_layers.append(np.ones((len(self.layers[-1]),
+        self.weight_layers.append(np.ones((len(self.layers[-1]) + 1,
             y.shape[0])))
-        
+
+    def fit(self, x, y):
+        x = np.array(x)
+        if len(x.shape) < 2:
+            raise Exception('x must have more than 2 dims!')
+        y = np.array(y)
+
+        self.init_weights(x, y)
         output = self.forward_propergate(x)
         return output
 
@@ -167,18 +176,27 @@ def getSampleData():
 def Test():
     x, y = getSampleData()
     y = np.array(y).reshape(1,1)
-    snn = SimpleNeuralNetwork(layers_config = ((10, 'relu'),(5, 'relu')))
+    snn = SimpleNeuralNetwork(layers_config = ((2, 'relu'),(2, 'relu')))
     output, layer_inputs = snn.fit(x, y)
     print 'output  =', output
     print 'y = ', y
     print 'layer inputs:', layer_inputs
     for x_in in layer_inputs:
         print x_in.T
-    for ind in xrange(0, 100):
+    err_list = []
+    for ind in xrange(0, 10000):
         snn.back_propergate(x, y)
         output, layer_inputs = snn.forward_propergate(x)
         print 'y˙ = {}, y = {}'.format(output, y)
-        snn.show_graph()
+        err = output - y
+        err = np.squeeze(err)
+        err_list.append(np.log(err ** 2))
+        # snn.show_graph()
+    plt.figure()
+    plt.plot(err_list)
+    plt.xlabel('Iterations')
+    plt.show()
+    # snn.show_graph()
     
     
 if __name__ == '__main__':
